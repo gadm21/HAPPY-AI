@@ -43,7 +43,7 @@ def moveFrames():
         except Exception as e:
             print(e)
             print("{0} Daily bucket could not be created".format(str(datetime.datetime.now())))
-    #os.system("aws s3 mv {} s3://{} --recursive".format(common.CARS_PATH, BUCKET_NAME+'/'+bucket_path))
+    os.system("aws s3 mv {} s3://{} --recursive".format(common.CARS_PATH, BUCKET_NAME+'/'+bucket_path))
 
 def main():
     moveFrames()
