@@ -4,6 +4,7 @@ import GPUtil
 import threading
 import time
 import logging
+import sys
 
 formatter = logging.Formatter("%(asctime)s;%(levelname)s;%(message)s",
                               "%Y-%m-%d %H:%M:%S")
@@ -23,8 +24,11 @@ class Memory:
         self.timeInterval = 30
         self.gpuMemoryFull = False
         self.cpuMemoryFull = False
-        self.cpuLogger = setupLogger('cpuLogger','log/cpu.log')
-        self.gpuLogger = setupLogger('gpuLogger','log/gpu.log')
+        self.logPath = sys.argv[1]
+        self.cpuPath = '{}/cpu.log'.format(self.logPath)
+        self.gpuPath = '{}/gpu.log'.format(self.logPath)
+        self.cpuLogger = setupLogger('cpuLogger', self.cpuPath)
+        self.gpuLogger = setupLogger('gpuLogger', self.gpuPath)
         self.cpuFreeMemoryThreshold = 100000000
 
     def cpuInfo(self):
