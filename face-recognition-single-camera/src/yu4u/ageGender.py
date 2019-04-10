@@ -12,7 +12,7 @@ weight_file = get_file("weights.28-3.73.hdf5", pretrained_model, cache_subdir="p
                                file_hash=modhash, cache_dir=str(Path(__file__).resolve().parent))
 img_size = 64
 model = WideResNet(img_size, depth=16, k=8)()
-model.load_weights("yu4u/pretrained_models/weights.28-3.73.hdf5")
+model.load_weights(weight_file)
 graph = tf.get_default_graph()
 
 def predict_age_gender(cropface):
