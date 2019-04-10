@@ -40,6 +40,10 @@ import blurdetector.blurdetect as blurDetector
 import track.tracker as track
 import hopenet.hopenet as hopenet
 
+#for age gender estimation (yu4u)
+from yu4u.wide_resnet import WideResNet
+import yu4u.ageGender as ageGender
+import yu4u.age as age
 
 gpu_memory_fraction = 1.0
 minsize = 93
@@ -166,7 +170,7 @@ class GUI(tk.Tk):
 
 		self.winfo_toplevel().title('Tapway Face System')
 
-		self.featureOption = tk.IntVar(value=0)
+		self.featureOption = tk.IntVar(value=2)
 
 		self.createMenu()
 		logger.info('Reading a single frame to define frame size')
@@ -206,36 +210,36 @@ class GUI(tk.Tk):
 		self.headPoseEstimator.load_pitch_variables(os.path.realpath("deepgaze/etc/tensorflow/head_pose/pitch/cnn_cccdd_30k.tf"))
 		self.headPoseEstimator.load_yaw_variables(os.path.realpath("deepgaze/etc/tensorflow/head_pose/yaw/cnn_cccdd_30k.tf"))
 
-		logger.info('Loading age and gender estimation caffe models')
-		self.ageNet = cv2.dnn.readNetFromCaffe(
-			"models/age/deploy.prototxt",
-			"models/age/age_net.caffemodel")
+		# logger.info('Loading age and gender estimation caffe models')
+		# self.ageNet = cv2.dnn.readNetFromCaffe(
+		# 	"models/age/deploy.prototxt",
+		# 	"models/age/age_net.caffemodel")
 
-		self.genderNet = cv2.dnn.readNetFromCaffe(
-			"models/gender/deploy.prototxt",
-			"models/gender/gender_net.caffemodel")
+		# self.genderNet = cv2.dnn.readNetFromCaffe(
+		# 	"models/gender/deploy.prototxt",
+		# 	"models/gender/gender_net.caffemodel")
 
-		logger.info('Loading hopenet head pose estimator model')
-		self.cudaAvailable = torch.cuda.is_available()
-		self.model = hopenet.Hopenet(torchvision.models.resnet.Bottleneck, [3, 4, 6, 3], 66)
-		self.transformations = transforms.Compose([transforms.Resize(224),
-												   transforms.CenterCrop(224), transforms.ToTensor(),
-												   transforms.Normalize(mean=[0.485, 0.456, 0.406],
-																		std=[0.229, 0.224, 0.225])])
-		if self.cudaAvailable:
-			saved_state_dict = torch.load('hopenet/hopenet_robust_alpha1.pkl')
-			self.model.load_state_dict(saved_state_dict)
-			self.model.cuda()
-			self.idx_tensor = [idx for idx in range(66)]
-			self.idx_tensor = torch.FloatTensor(self.idx_tensor).cuda()
-		else:
-			saved_state_dict = torch.load('hopenet/hopenet_robust_alpha1.pkl',map_location='cpu')
-			self.model.load_state_dict(saved_state_dict)
-			self.idx_tensor = [idx for idx in range(66)]
-			self.idx_tensor = torch.FloatTensor(self.idx_tensor)
-		self.model.eval()
+		# logger.info('Loading hopenet head pose estimator model')
+		# self.cudaAvailable = torch.cuda.is_available()
+		# self.model = hopenet.Hopenet(torchvision.models.resnet.Bottleneck, [3, 4, 6, 3], 66)
+		# self.transformations = transforms.Compose([transforms.Resize(224),
+		# 										   transforms.CenterCrop(224), transforms.ToTensor(),
+		# 										   transforms.Normalize(mean=[0.485, 0.456, 0.406],
+		# 																std=[0.229, 0.224, 0.225])])
+		# if self.cudaAvailable:
+		# 	saved_state_dict = torch.load('hopenet/hopenet_robust_alpha1.pkl')
+		# 	self.model.load_state_dict(saved_state_dict)
+		# 	self.model.cuda()
+		# 	self.idx_tensor = [idx for idx in range(66)]
+		# 	self.idx_tensor = torch.FloatTensor(self.idx_tensor).cuda()
+		# else:
+		# 	saved_state_dict = torch.load('hopenet/hopenet_robust_alpha1.pkl',map_location='cpu')
+		# 	self.model.load_state_dict(saved_state_dict)
+		# 	self.idx_tensor = [idx for idx in range(66)]
+		# 	self.idx_tensor = torch.FloatTensor(self.idx_tensor)
+		# self.model.eval()
 
-		self.headPoseOption = tk.StringVar(value = 'hopenet')
+		self.headPoseOption = tk.StringVar(value = 'deepgaze')
 
 		logger.info('Initialization and loading completed')
 
@@ -1209,26 +1213,44 @@ class GUI(tk.Tk):
 
 	def ageGenderEstimation(self,cropface,fid):
 		t1 = time.time()
-		blob = cv2.dnn.blobFromImage(cropface, 1, (227, 227), MODEL_MEAN_VALUES, swapRB=False)
+		# age gender caffe model
+		# blob = cv2.dnn.blobFromImage(cropface, 1, (227, 227), MODEL_MEAN_VALUES, swapRB=False)
 
-		self.ageNet.setInput(blob)
-		age_preds = self.ageNet.forward()
-		age = age_list[age_preds[0].argmax()]
+		# self.ageNet.setInput(blob)
+		# age_preds = self.ageNet.forward()
+		# age = age_list[age_preds[0].argmax()]
 
-		self.genderNet.setInput(blob)
-		gender_preds = self.genderNet.forward()
-		gender = gender_list[gender_preds[0].argmax()]
+		# self.genderNet.setInput(blob)
+		# gender_preds = self.genderNet.forward()
+		# gender = gender_list[gender_preds[0].argmax()]
+
+		#yu4u age gender estimator
+		#first model
+		predicted_age1, predicted_gender = ageGender.predict_age_gender(cropface)
+		#second mode;
+		predicted_age2 = age.predict_age(cropface)
+
+		#modify age
+		if predicted_age2 < 5:
+			self.faceAttributesList[fid].age = predicted_age2
+		elif predicted_age1 > 40 or predicted_age2 > 40:
+			self.faceAttributesList[fid].age = predicted_age1
+			if predicted_age2 > predicted_age1:
+				self.faceAttributesList[fid].age = predicted_age2
+		else:
+			self.faceAttributesList[fid].age = (predicted_age2+predicted_age1)/2
 
 		print(time.time()-t1,'age gender time elapsed')
 
 		self.tracker.faceID[fid] = str(fid)
 		self.faceAttributesList[fid].awsID = str(fid)
 
-		self.faceAttributesList[fid].gender = gender
-		self.faceAttributesList[fid].genderConfidence = float(max(gender_preds[0])*100.0)
+		self.faceAttributesList[fid].gender = predicted_gender
+		# self.faceAttributesList[fid].genderConfidence = float(max(gender_preds[0])*100.0)
 
-		self.faceAttributesList[fid].ageRangeLow = age[0]
-		self.faceAttributesList[fid].ageRangeHigh = age[1]
+		# self.faceAttributesList[fid].ageRangeLow = predicted_age1
+		# self.faceAttributesList[fid].ageRangeHigh = predicted_age2
+		# self.faceAttributesList[fid].age = predicted_age
 		self.faceAttributesList[fid].recognizedTime = str(datetime.datetime.now().strftime('%H:%M:%S %d-%m-%Y'))
 
 		self.addFaceToImageList(fid,cropface)
@@ -1240,7 +1262,6 @@ class GUI(tk.Tk):
 		logger.info('Estimated age and gender of face ID {} using non-cloud solution'.format(fid))
 
 	def drawTrackedFace(self,imgDisplay,points):
-
 		for fid in self.tracker.faceTrackers.keys():
 			tracked_position = self.tracker.faceTrackers[fid].get_position()
 			t_x = int(tracked_position.left())
@@ -1252,7 +1273,6 @@ class GUI(tk.Tk):
 			rectColor = (0,165,255)
 
 			if fid in self.tracker.faceID.keys():
-
 				awsID = self.tracker.faceID[fid]
 
 				if awsID in self.faceNamesList.keys():
@@ -1267,7 +1287,7 @@ class GUI(tk.Tk):
 					gender = 'Gender: {}'.format(str(faceAttr.gender))
 					genderTSize = cv2.getTextSize(gender, cv2.FONT_HERSHEY_SIMPLEX,0.5,2)[0]
 					genderLoc = (int(t_x + t_w / 2 - (genderTSize[0]) / 2),int(t_y-5))
-					age = 'Age: {} - {}'.format(faceAttr.ageRangeLow,faceAttr.ageRangeHigh)
+					age = 'Age: {}'.format(int(faceAttr.age))
 					ageTSize = cv2.getTextSize(age, cv2.FONT_HERSHEY_SIMPLEX,0.5,2)[0]
 					ageLoc = (int(t_x + t_w / 2 - (ageTSize[0]) / 2),int(t_y+t_h+15))
 					cv2.putText(imgDisplay,gender,genderLoc,cv2.FONT_HERSHEY_SIMPLEX,0.5,(255,255,255),2)
@@ -1499,7 +1519,7 @@ class GUI(tk.Tk):
 
 					roll,pitch,yaw = self.getHeadPoseEstimation(faceImg)
 
-					logger.info('Attributes of detected face number {} are shaprness:{}, yaw:{}, pitch:{}'.format(self.num_face,laplacian_val,yaw,pitch))
+					logger.info('Attributes of detected face number {} are sharpness:{}, yaw:{}, pitch:{}'.format(self.num_face,laplacian_val,yaw,pitch))
 
 					if blur:
 						logger.warning('Blur image of face number {} is filter as it laplacian variance ({}) is less than threshold {}'.format(self.num_face,laplacian_val,self.blurFilter.get()))
@@ -1558,6 +1578,7 @@ class FaceAttribute(object):
 		self.genderConfidence = None
 		self.ageRangeLow = None
 		self.ageRangeHigh = None
+		self.age = None
 		self.detectedTime = None
 		self.recognizedTime = None
 
