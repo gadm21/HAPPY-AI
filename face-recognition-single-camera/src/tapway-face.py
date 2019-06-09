@@ -45,8 +45,11 @@ from yu4u.wide_resnet import WideResNet
 import yu4u.ageGender as ageGender
 import yu4u.age as age
 
+#mysql database
+from database import Database
+
 gpu_memory_fraction = 1.0
-minsize = 93
+minsize = 90
 threshold = [ 0.6, 0.7, 0.7 ]
 factor = 0.709
 
@@ -54,7 +57,7 @@ MODEL_MEAN_VALUES = (78.4263377603, 87.7689143744, 114.895847746)
 # age_list=['(0, 2)','(4, 6)','(8, 12)','(15, 20)','(25, 32)','(38, 43)','(48, 53)','(60, 100)']
 age_list=[[0, 2],[4, 6],[8, 12],[15, 20],[25, 32],[38, 43],[48, 53],[60, 100]]
 
-gender_list = ['Male', 'Female']
+gender_list = ['M', 'F']
 
 logging.config.fileConfig('logging.conf')
 logging.logThreads = 0
@@ -173,10 +176,12 @@ class GUI(tk.Tk):
 		self.featureOption = tk.IntVar(value=2)
 
 		self.createMenu()
+		
 		logger.info('Reading a single frame to define frame size')
 		### read single frame to setup imageList
 		self.camera = cv2.VideoCapture(self.file)
 		self.camera.set(cv2.CAP_PROP_BUFFERSIZE,2)
+		
 		flag,frame = self.camera.read()
 		assert flag == True
 		self.tracker.videoFrameSize = frame.shape
@@ -210,14 +215,14 @@ class GUI(tk.Tk):
 		self.headPoseEstimator.load_pitch_variables(os.path.realpath("deepgaze/etc/tensorflow/head_pose/pitch/cnn_cccdd_30k.tf"))
 		self.headPoseEstimator.load_yaw_variables(os.path.realpath("deepgaze/etc/tensorflow/head_pose/yaw/cnn_cccdd_30k.tf"))
 
-		# logger.info('Loading age and gender estimation caffe models')
+		logger.info('Loading age and gender estimation caffe models')
 		# self.ageNet = cv2.dnn.readNetFromCaffe(
 		# 	"models/age/deploy.prototxt",
 		# 	"models/age/age_net.caffemodel")
 
-		# self.genderNet = cv2.dnn.readNetFromCaffe(
-		# 	"models/gender/deploy.prototxt",
-		# 	"models/gender/gender_net.caffemodel")
+		self.genderNet = cv2.dnn.readNetFromCaffe(
+			"models/gender/deploy.prototxt",
+			"models/gender/gender_net.caffemodel")
 
 		# logger.info('Loading hopenet head pose estimator model')
 		# self.cudaAvailable = torch.cuda.is_available()
@@ -288,7 +293,6 @@ class GUI(tk.Tk):
 			logger.info('Loading face attributes data from /data/faceAttr.json')
 			with open('data/faceAttr.json') as infile:
 				self.faceAttributesList = jsonpickle.decode(json.load(infile))
-
 			logger.info('Loading face names data from /data/faceName.json')
 			with open('data/faceName.json') as infile:
 				self.faceNamesList = jsonpickle.decode(json.load(infile))
@@ -304,7 +308,6 @@ class GUI(tk.Tk):
 			sortedImg = [(k, self.savingImageData[k]) for k in sorted(self.savingImageData, key=self.savingImageData.__getitem__)]
 			for key, card in sortedImg:
 				self.addFaceToImageList(card.fid, card.image)
-
 			logger.info('Loaded json and pickle data from files in /data')
 		except Exception as ex:
 			logger.warning('Failed to load data from files: '+str(ex))
@@ -326,10 +329,8 @@ class GUI(tk.Tk):
 		fileMenu = tk.Menu(menu)
 		fileMenu.add_command(label='New Whitelist Entry', command=lambda: self.new_whitelist())
 		fileMenu.add_command(label='New Blacklist Entry', command=lambda: self.new_blacklist())
-
 		menu.add_cascade(label='Registration', menu=fileMenu)
-
-		self.winfo_toplevel().config(menu=menu)
+		self.winfo_toplevel().configure(menu=menu)
 
 		editMenu = tk.Menu(menu)
 		editMenu.add_separator()
@@ -995,6 +996,9 @@ class GUI(tk.Tk):
 		config.read('config.ini')
 		logger.info('Reading configuration from /config.ini')
 
+		#loading database
+		self.db = Database()
+		
 		self.file = config.get('default','video')
 
 		if self.file.isdigit():
@@ -1040,6 +1044,13 @@ class GUI(tk.Tk):
 			imgLabel.configure(style="WB.TButton")
 
 		imgLabel.imgtk = imgtk
+
+		imageListSize = len(self.imageList)
+
+		if imageListSize > 19:
+			#choosing index 2 because there are 2 icons in front
+			firstImageListFid = list(self.imageList.keys())[2]
+			del self.imageList[firstImageListFid]
 
 		self.imageList[int(fid)] = imgLabel
 		self.gridResetLayout()
@@ -1214,46 +1225,41 @@ class GUI(tk.Tk):
 	def ageGenderEstimation(self,cropface,fid):
 		t1 = time.time()
 		# age gender caffe model
-		# blob = cv2.dnn.blobFromImage(cropface, 1, (227, 227), MODEL_MEAN_VALUES, swapRB=False)
+		blob = cv2.dnn.blobFromImage(cropface, 1, (227, 227), MODEL_MEAN_VALUES, swapRB=False)
 
 		# self.ageNet.setInput(blob)
 		# age_preds = self.ageNet.forward()
 		# age = age_list[age_preds[0].argmax()]
 
-		# self.genderNet.setInput(blob)
-		# gender_preds = self.genderNet.forward()
-		# gender = gender_list[gender_preds[0].argmax()]
+		self.genderNet.setInput(blob)
+		gender_preds = self.genderNet.forward()
+		gender = gender_list[gender_preds[0].argmax()]
 
 		#yu4u age gender estimator
 		#first model
 		predicted_age1, predicted_gender = ageGender.predict_age_gender(cropface)
-		#second mode;
+		#second model
 		predicted_age2 = age.predict_age(cropface)
 
-		#modify age
-		if predicted_age2 < 5:
-			self.faceAttributesList[fid].age = predicted_age2
-		elif predicted_age1 > 40 or predicted_age2 > 40:
-			self.faceAttributesList[fid].age = predicted_age1
-			if predicted_age2 > predicted_age1:
-				self.faceAttributesList[fid].age = predicted_age2
+		if(predicted_age2 <= 10):
+			self.faceAttributesList[fid].age = int(min(predicted_age2,predicted_age1))
+		elif(predicted_age1 >= 40 or predicted_age2 >= 40):
+			self.faceAttributesList[fid].age = int(max(predicted_age2, predicted_age1))
 		else:
-			self.faceAttributesList[fid].age = (predicted_age2+predicted_age1)/2
+			self.faceAttributesList[fid].age = int((predicted_age2+predicted_age1)/2)
 
-		print(time.time()-t1,'age gender time elapsed')
+		# print(time.time()-t1,'age gender time elapsed')
 
 		self.tracker.faceID[fid] = str(fid)
 		self.faceAttributesList[fid].awsID = str(fid)
 
-		self.faceAttributesList[fid].gender = predicted_gender
-		# self.faceAttributesList[fid].genderConfidence = float(max(gender_preds[0])*100.0)
-
-		# self.faceAttributesList[fid].ageRangeLow = predicted_age1
-		# self.faceAttributesList[fid].ageRangeHigh = predicted_age2
-		# self.faceAttributesList[fid].age = predicted_age
+		self.faceAttributesList[fid].gender = gender
 		self.faceAttributesList[fid].recognizedTime = str(datetime.datetime.now().strftime('%H:%M:%S %d-%m-%Y'))
 
 		self.addFaceToImageList(fid,cropface)
+		#add face to database
+		self.db.addFaceToDemographic(self.faceAttributesList[fid])
+
 		logger.info('New face with ID {} has been added to image list'.format(fid))
 		imgCard = ImageCard()
 		imgCard.fid = fid
@@ -1377,11 +1383,11 @@ class GUI(tk.Tk):
 		genderFrame = tk.ttk.Label(frame,text='{0:15}\t: {1}'.format('Gender',faceAttr.gender))
 		genderFrame.pack(fill=tk.X,padx=5)
 
-		genderConfidenceFrame = tk.ttk.Label(frame,text='{0:15}\t: {1}'.format('Gender Confidence',faceAttr.genderConfidence))
-		genderConfidenceFrame.pack(fill=tk.X,padx=5)
+		# genderConfidenceFrame = tk.ttk.Label(frame,text='{0:15}\t: {1}'.format('Gender Confidence',faceAttr.genderConfidence))
+		# genderConfidenceFrame.pack(fill=tk.X,padx=5)
 
-		ageRangeFrame = tk.ttk.Label(frame,text='{0:15}\t: {1} - {2}'.format('Age Range',faceAttr.ageRangeLow,faceAttr.ageRangeHigh))
-		ageRangeFrame.pack(fill=tk.X,padx=5)
+		ageFrame = tk.ttk.Label(frame,text='{0:15}\t: {1}'.format('Age',faceAttr.age))
+		ageFrame.pack(fill=tk.X,padx=5)
 
 		detectedTimeFrame = tk.ttk.Label(frame, text='{0:15}\t: {1}'.format('Detected Time', faceAttr.detectedTime))
 		detectedTimeFrame.pack(fill=tk.X, padx=5)
@@ -1482,10 +1488,9 @@ class GUI(tk.Tk):
 		points = np.empty((0,0))
 
 		if (self.frame_count%self.frame_interval) == 0:
-			# t1 = time.time()
-			bounding_boxes,points = align.detect_face.detect_face(roi, minsize, pnet, rnet, onet, threshold, factor,use_thread=self.detectionThread)
-			# print(time.time()-t1,'face detect elapsed')
-			for (x1, y1, x2, y2, acc) in bounding_boxes:
+			#for mtcnn
+			bounding_boxes,points = align.detect_face.detect_face(roi, minsize, pnet, rnet, onet, threshold, factor,use_thread=self.detectionThread)    
+			for (x1,y1,x2,y2,acc) in bounding_boxes:
 				### add back cut out region
 				x1+=self.ROIx1
 				y1+=self.ROIy1
@@ -1539,6 +1544,7 @@ class GUI(tk.Tk):
 					faceAttr.roll = float(roll)
 					faceAttr.pitch = float(pitch)
 					faceAttr.yaw = float(yaw)
+					faceAttr.pathToImage = str('{}/face_{}.png'.format(self.saveImgPath, self.num_face))
 
 					currentFaceID = str(self.currentFaceID)
 					self.faceAttributesList[currentFaceID] = faceAttr
@@ -1546,7 +1552,7 @@ class GUI(tk.Tk):
 					self.tracker.createTrack(imgDisplay,(x1,y1,x2,y2),currentFaceID)
 					logger.info('Tracking new face number {} in ({},{}), ({},{})'.format(currentFaceID,x1,y1,x2,y2))
 
-					cropface = cropFace(frame,(x1,y1,x2,y2),crop_factor=self.crop_factor,minHeight=80,minWidth=80)
+					cropface = cropFace(frame,(x1-15,y1-15,x2+15,y2+15),crop_factor=self.crop_factor,minHeight=80,minWidth=80)
 
 					saveImage(self.saveImgPath,cropface,self.num_face)
 
@@ -1575,10 +1581,8 @@ class FaceAttribute(object):
 		self.sharpnessValue = None
 		self.similarity = 'New Face'
 		self.gender = None
-		self.genderConfidence = None
-		self.ageRangeLow = None
-		self.ageRangeHigh = None
 		self.age = None
+		self.pathToImage = None
 		self.detectedTime = None
 		self.recognizedTime = None
 
@@ -1614,9 +1618,9 @@ if __name__ == '__main__':
 												# intra_op_parallelism_threads=NUM_THREADS,
 												log_device_placement=False))
 		with sess.as_default():
-			pnet, rnet, onet = align.detect_face.create_mtcnn(
-				sess, None)
+			pnet, rnet, onet = align.detect_face.create_mtcnn(sess, None)
 
 		app = GUI()
 		app.showFrame()
 		app.mainloop()
+
