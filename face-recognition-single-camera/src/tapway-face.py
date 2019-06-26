@@ -1104,7 +1104,7 @@ class GUI(tk.Tk):
 			if check:
 				self.frame.update()
 				self.geometry('{}x{}'.format(int(img.width+self.frame.winfo_width()),int(img.height)))
-		else:
+		else:	
 			if not self.videoError:
 				logger.error('No frame came in from video feed')
 				self.videoLabel.delete('bg')
@@ -1112,6 +1112,7 @@ class GUI(tk.Tk):
 				size = (self.videoLabel.winfo_width(), self.videoLabel.winfo_height())
 				self.videoLabel.create_text(size[0]/2,size[1]/2, fill='red', text="Invalid video input.\nPlease specify correct input in 'Edit' > 'Configure IP Address'.",font=("Helvetica",15),tags='bg')
 			self.videoError = True
+			self._quit()
 		self.videoLabel.after(10,self.showFrame)
 
 	def AWSDetection(self,enc,cropface,fid):
@@ -1235,6 +1236,8 @@ class GUI(tk.Tk):
 		gender_preds = self.genderNet.forward()
 		gender = gender_list[gender_preds[0].argmax()]
 
+		print(time.time()-t1,'gender time elapsed')
+		t2 = time.time()
 		#yu4u age gender estimator
 		#first model
 		predicted_age1, predicted_gender = ageGender.predict_age_gender(cropface)
@@ -1248,7 +1251,7 @@ class GUI(tk.Tk):
 		else:
 			self.faceAttributesList[fid].age = int((predicted_age2+predicted_age1)/2)
 
-		# print(time.time()-t1,'age gender time elapsed')
+		print(time.time()-t2,'age time elapsed')
 
 		self.tracker.faceID[fid] = str(fid)
 		self.faceAttributesList[fid].awsID = str(fid)
@@ -1488,6 +1491,7 @@ class GUI(tk.Tk):
 		points = np.empty((0,0))
 
 		if (self.frame_count%self.frame_interval) == 0:
+			t3 = time.time()
 			#for mtcnn
 			bounding_boxes,points = align.detect_face.detect_face(roi, minsize, pnet, rnet, onet, threshold, factor,use_thread=self.detectionThread)    
 			for (x1,y1,x2,y2,acc) in bounding_boxes:
@@ -1505,6 +1509,7 @@ class GUI(tk.Tk):
 					self.currentFaceID += 1
 					self.num_face += 1
 					logger.info('Detected a face number {} in rectangle ({},{}) ({},{})'.format(self.num_face,x1, y1, x2, y2))
+					print(time.time()-t3,'mtcnn time elapsed')
 
 					faceImg = cropFace(frame,(x1,y1,x2,y2))
 
